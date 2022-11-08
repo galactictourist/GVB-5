@@ -1,1 +1,1 @@
-# marketplace-contracts
+# givabit-marketplace-contracts
