@@ -11,4 +11,5 @@ interface IGBCollection {
         uint96 royalty,
         string memory tokenURI_
     ) external ;
+    function royaltyInfo(uint256 _tokenId, uint256 _salePrice) external view returns (address, uint256);
 }

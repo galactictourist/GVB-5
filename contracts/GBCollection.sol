@@ -43,13 +43,14 @@ contract GBCollection is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGua
         uint96 royalty,
         string memory tokenURI_
     ) external onlyRole(MARKETPLACE_ROLE) nonReentrant {
+        require(_msgSender() == tx.origin, "GBCollection: Only EOA can mint");
         require(supply == 1, "GBCollection: Supply should be 1");
         require(
             !_exists(tokenId),
             "GBCollection: This token is already minted"
         );
 
-        _safeMint(account, tokenId);
+        _mint(account, tokenId);
         _setTokenURI(tokenId, tokenURI_);
 
         _setTokenRoyalty(tokenId, account, royalty);
