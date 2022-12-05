@@ -5,17 +5,12 @@ library Domain {
 
   bytes32 constant public ADD_SINGLE_ITEM_TYPEHASH = 
     keccak256(
-      "AddSingleItem(address account,address collection,uint256 tokenId,uint96 royaltyFee,string tokenURI,address charityAddress,uint96 charityFee,uint256 deadline,uint256 nonce)"
+      "AddSingleItem(address account,address collection,uint256 tokenId,uint96 royaltyFee,string tokenURI,uint256 deadline,uint256 nonce)"
     );
 
   bytes32 constant public BUY_ITEM_TYPEHASH = 
     keccak256(
-      "BuyItem(address account,address collection,address seller,uint256 tokenId,uint256 itemPrice,uint256 additionalPrice,uint256 deadline,uint256 nonce)"
-    );
-
-  bytes32 constant public UPDATE_CHARITY_TYPEHASH = 
-    keccak256(
-      "UpdateCharity(address account,address collection,uint256 tokenId,address charityAddress,uint96 charityFee,uint256 deadline,uint256 nonce)"
+      "BuyItem(address account,address collection,address seller,uint256 tokenId,uint256 itemPrice,uint256 additionalPrice,address charityAddress,uint96 charityFee,uint256 deadline,uint256 nonce)"
     );
 
   bytes32 constant public UPDATE_TOKENURI_TYPEHASH = 
@@ -28,8 +23,6 @@ library Domain {
     uint256 tokenId;
     uint96 royaltyFee;
     string tokenURI;
-    address charityAddress;
-    uint96 charityFee;
     uint256 deadline;
   }
 
@@ -38,15 +31,8 @@ library Domain {
     address collection;
     address seller;
     uint256 tokenId;
-    uint256 itemPrice;
-    uint256 additionalPrice;
-    uint256 deadline;
-  }
-
-  struct UpdateCharity {
-    address account;
-    address collection;
-    uint256 tokenId;
+    uint256 itemPrice;  // listed price
+    uint256 additionalPrice;  // additional price for charity
     address charityAddress;
     uint96 charityFee;
     uint256 deadline;
@@ -72,8 +58,6 @@ library Domain {
         addSingleItem.tokenId,
         addSingleItem.royaltyFee,
         addSingleItem.tokenURI,
-        addSingleItem.charityAddress,
-        addSingleItem.charityFee,
         addSingleItem.deadline,
         nonce
       )
@@ -93,25 +77,9 @@ library Domain {
         buyItem.tokenId,
         buyItem.itemPrice,
         buyItem.additionalPrice,
+        buyItem.charityAddress,
+        buyItem.charityFee,
         buyItem.deadline,
-        nonce
-      )
-    );
-  }
-
-  function _hashUpdateCharity(UpdateCharity calldata updateCharity, uint256 nonce)
-    internal 
-    pure returns (bytes32)
-  {
-    return keccak256(
-      abi.encode(
-        UPDATE_CHARITY_TYPEHASH,
-        updateCharity.account,
-        updateCharity.collection,
-        updateCharity.tokenId,
-        updateCharity.charityAddress,
-        updateCharity.charityFee,
-        updateCharity.deadline,
         nonce
       )
     );

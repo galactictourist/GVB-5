@@ -19,8 +19,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256 tokenId,
     string tokenURI,
     uint96 royaltyFee,
-    address charityAddress,
-    uint96 charityFee,
     uint256 timestamp
   );
   
@@ -30,36 +28,12 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256[] tokenIds,
     string[] tokenURIs,
     uint96 royaltyFee,
-    address charityAddress,
-    uint96 charityFee,
     address artistAddress,
     uint256 timestamp
   );
 
   event BoughtItem(
-    address collection,
-    address buyer,
-    address seller,
-    uint256 tokenId,
-    uint256 itemPrice,
-    uint256 additionalPrice,
-    uint256 timestamp
-  );
-
-  event UpdatedCharity(
-    address collection,
-    address from,
-    uint256 tokenId,
-    address charityAddress,
-    uint96 charityFee,
-    uint256 timestamp
-  );
-  
-  event UpdatedItemMetaData(
-    address collection,
-    address from,
-    uint256 tokenId,
-    string tokenURI,
+    Domain.BuyItem item,
     uint256 timestamp
   );
 
@@ -77,8 +51,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   event SetPlatformFee(uint96 platformFee);
 
   struct ItemInfo {
-    address charityAddress;
-    uint96 charityFee;   // 2 decimals
     address royaltyAddress;
     uint96 royaltyFee;   // 2 decimals
     bool isPrimaryCollection;
@@ -141,12 +113,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   ) external nonReentrant whenNotPaused {
     require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(item.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
-    require(item.charityAddress != address(0), "GBMarketplace: charity address must not be zero address");
-    require(
-      item.charityFee >= 1000 && item.charityFee <= 10000, 
-      "GBMarketplace: charity percentage must be between 10% and 100%"
-    );
-    require(item.charityFee + platformFee + item.royaltyFee <= 10000, "GBMarketplace: total fee must be less than 100%");
     require(gbCollection[item.collection], "GBMarketplace: Invalid collection address");
     require(block.timestamp <= item.deadline, "GBMarketplace: Signature expired");
     uint256 validNonce = nonces[_msgSender()];
@@ -159,8 +125,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     );
     
     itemInfo[item.collection][item.tokenId] = ItemInfo(
-      item.charityAddress, 
-      item.charityFee, 
       _msgSender(), 
       item.royaltyFee, 
       false
@@ -177,7 +141,14 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       item.royaltyFee,
       item.tokenURI
     );
-    emit AddedSingleItem(item.collection, _msgSender(), item.tokenId, item.tokenURI, item.royaltyFee, item.charityAddress, item.charityFee, block.timestamp);
+    emit AddedSingleItem(
+      item.collection, 
+      _msgSender(), 
+      item.tokenId, 
+      item.tokenURI, 
+      item.royaltyFee, 
+      block.timestamp
+    );
   }
 
   function addPrimaryMultipleItems(
@@ -185,25 +156,15 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256[] calldata tokenIds,
     uint96 royaltyFee,
     string[] calldata tokenURIs,
-    address charityAddress,
-    uint96 charityFee,
     address artistAddress
   ) external nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
     require(collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(tokenIds.length == tokenURIs.length, "GBMarketplace: tokenIds and tokenURIs length must be equal");
-    require(charityAddress != address(0), "GBMarketplace: charity address must not be zero address");
-    require(
-      charityFee >= 1000 && charityFee <= 10000, 
-      "GBMarketplace: charity percentage must be between 10% and 100%"
-    );
-    require(charityFee + platformFee + royaltyFee <= 10000, "GBMarketplace: total fee must be less than 100%");
     require(gbCollection[collection], "GBMarketplace: Invalid collection address");
     
     for (uint256 i = 0; i < tokenIds.length; _unsafe_inc(i)) {
       require(tokenIds[i] > 0, "GBMarketplace: tokenId must be greater than zero");
       itemInfo[collection][tokenIds[i]] = ItemInfo(
-        charityAddress, 
-        charityFee, 
         artistAddress, 
         royaltyFee, 
         true
@@ -214,10 +175,25 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         royaltyFee,
         tokenURIs[i]
       );
-      emit AddedSingleItem(collection, artistAddress, tokenIds[i], tokenURIs[i], royaltyFee, charityAddress, charityFee, block.timestamp);
+      emit AddedSingleItem(
+        collection, 
+        artistAddress, 
+        tokenIds[i], 
+        tokenURIs[i], 
+        royaltyFee, 
+        block.timestamp
+      );
     }
     
-    emit AddedMultiplePrimaryItems(collection, _msgSender(), tokenIds, tokenURIs, royaltyFee, charityAddress, charityFee, artistAddress, block.timestamp);
+    emit AddedMultiplePrimaryItems(
+      collection, 
+      _msgSender(), 
+      tokenIds, 
+      tokenURIs, 
+      royaltyFee, 
+      artistAddress, 
+      block.timestamp
+    );
   }
 
   function buyItem(
@@ -226,6 +202,13 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   ) external payable nonReentrant whenNotPaused {
     require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(item.seller.code.length == 0, "GBMarketplace: seller address must not be contract address");
+    require(item.charityAddress != address(0), "GBMarketplace: charity address must not be zero address");
+    require(
+      item.charityFee >= 1000 && item.charityFee <= 10000, 
+      "GBMarketplace: charity percentage must be between 10% and 100%"
+    );
+    ItemInfo memory nftItemInfo = itemInfo[item.collection][item.tokenId];
+    require(item.charityFee + platformFee + nftItemInfo.royaltyFee <= 10000, "GBMarketplace: total fee must be less than 100%");
     require(item.itemPrice > 0, "GBMarketplace: NFT Price must be greater than 0");
     require(msg.value >= item.itemPrice + item.additionalPrice, "GBMarketplace: Insufficient funds");
     require(block.timestamp <= item.deadline, "GBMarketplace: Signature expired");
@@ -240,11 +223,8 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     );
 
     uint256 charityAmount = 0;
-    ItemInfo memory nftItemInfo = itemInfo[item.collection][item.tokenId];
-    if (nftItemInfo.charityAddress != address(0) && nftItemInfo.charityFee > 0) { // send charity amount to charity address
-      charityAmount = _calcFeeAmount(item.itemPrice, nftItemInfo.charityFee);
-      Address.sendValue(payable(nftItemInfo.charityAddress), charityAmount + item.additionalPrice);
-    }
+    charityAmount = _calcFeeAmount(item.itemPrice, item.charityFee);
+    Address.sendValue(payable(item.charityAddress), charityAmount + item.additionalPrice);
 
     (address royaltyReceiver, uint256 royaltyAmount) = IGBCollection(item.collection).royaltyInfo(item.tokenId, item.itemPrice);
     Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
@@ -252,7 +232,10 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256 platformAmount = _calcFeeAmount(item.itemPrice, platformFee);
     Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
 
-    uint256 sellerAmount = item.itemPrice - charityAmount - royaltyAmount - platformAmount;
+    uint256 sellerAmount = 0;
+    unchecked {
+      sellerAmount = item.itemPrice - charityAmount - royaltyAmount - platformAmount;
+    }
     if (sellerAmount > 0) {
       if (nftItemInfo.isPrimaryCollection) {  // check if nft is primary collection
         uint256 artistAmount = sellerAmount / 2;
@@ -273,43 +256,10 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         _msgSender(),
         item.tokenId
     );
-    emit BoughtItem(item.collection, _msgSender(), item.seller, item.tokenId, item.itemPrice, item.additionalPrice, block.timestamp);
-  }
-
-  function updateCharity(
-    Domain.UpdateCharity calldata charityInfo,
-    bytes memory signature
-  ) external whenNotPaused {
-    require(charityInfo.collection != address(0), "GBMarketplace: collection address must not be zero address");
-    require(charityInfo.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
-    require(charityInfo.charityAddress != address(0), "GBMarketplace: charity address must not be zero address");
-    require(
-      charityInfo.charityFee >= 1000 && charityInfo.charityFee <= 10000, 
-      "GBMarketplace: charity percentage must be between 10% and 100%"
+    emit BoughtItem(
+      item,
+      block.timestamp
     );
-    ItemInfo storage nftItemInfo = itemInfo[charityInfo.collection][charityInfo.tokenId];
-    require(charityInfo.charityFee + platformFee + nftItemInfo.royaltyFee <= 10000, "GBMarketplace: total fee must be less than 100%");
-    require(gbCollection[charityInfo.collection], "GBMarketplace: Invalid collection address");
-    require(block.timestamp <= charityInfo.deadline, "GBMarketplace: Signature expired");
-    uint256 validNonce = nonces[_msgSender()];
-    require(
-      _verify(
-        _hashTypedDataV4(Domain._hashUpdateCharity(charityInfo, validNonce)),
-        signature
-      ), 
-      "Invalid signature"
-    );
-    require(
-      IGBCollection(charityInfo.collection).ownerOf(charityInfo.tokenId) == _msgSender(), 
-      "GBMarketplace: Only NFT owner can update charity info"
-    );
-    nftItemInfo.charityAddress = charityInfo.charityAddress;
-    nftItemInfo.charityFee = charityInfo.charityFee;
-    
-    unchecked {
-      ++ nonces[_msgSender()];
-    }
-    emit UpdatedCharity(charityInfo.collection, _msgSender(), charityInfo.tokenId, charityInfo.charityAddress, charityInfo.charityFee, block.timestamp);
   }
 
   function updateTokenURI(
@@ -338,7 +288,13 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     }
     IGBCollection(tokenUriInfo.collection).setTokenURI(tokenUriInfo.tokenId, tokenUriInfo.tokenURI);
     
-    emit UpdatedTokenURI(tokenUriInfo.collection, _msgSender(), tokenUriInfo.tokenId, tokenUriInfo.tokenURI, block.timestamp);
+    emit UpdatedTokenURI(
+      tokenUriInfo.collection, 
+      _msgSender(), 
+      tokenUriInfo.tokenId, 
+      tokenUriInfo.tokenURI, 
+      block.timestamp
+    );
   }
 
   function _calcFeeAmount(uint256 amount, uint96 fee) internal pure returns (uint256) {
