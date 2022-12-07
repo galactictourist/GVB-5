@@ -18,8 +18,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     address from,
     uint256 tokenId,
     string tokenURI,
-    uint96 royaltyFee,
-    uint256 timestamp
+    uint96 royaltyFee
   );
   
   event AddedMultiplePrimaryItems(
@@ -28,21 +27,18 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256[] tokenIds,
     string[] tokenURIs,
     uint96 royaltyFee,
-    address artistAddress,
-    uint256 timestamp
+    address artistAddress
   );
 
   event BoughtItem(
-    Domain.BuyItem item,
-    uint256 timestamp
+    Domain.BuyItem item
   );
 
   event UpdatedTokenURI(
     address collection,
     address from,
     uint256 tokenId,
-    string tokenURI,
-    uint256 timestamp
+    string tokenURI
   );
 
   event SetCollectionAddress(address collectionAddress, bool status);
@@ -70,9 +66,9 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     address verifyRoleAddress,
     address adminWallet_
   ) EIP712("GBMarketplace", "1.0.0") {
+    adminWallet = adminWallet_;
     _setupRole(DEFAULT_ADMIN_ROLE, owner);
     _setupRole(VERIFY_ROLE, verifyRoleAddress);
-    adminWallet = adminWallet_;
   }
 
   function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControl) returns (bool) {
@@ -109,7 +105,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   function addSingleItem(
     Domain.AddSingleItem calldata item,
-    bytes memory signature
+    bytes calldata signature
   ) external nonReentrant whenNotPaused {
     require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(item.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
@@ -123,7 +119,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       ), 
       "Invalid signature"
     );
-    
     itemInfo[item.collection][item.tokenId] = ItemInfo(
       _msgSender(), 
       item.royaltyFee, 
@@ -146,8 +141,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       _msgSender(), 
       item.tokenId, 
       item.tokenURI, 
-      item.royaltyFee, 
-      block.timestamp
+      item.royaltyFee
     );
   }
 
@@ -180,8 +174,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         artistAddress, 
         tokenIds[i], 
         tokenURIs[i], 
-        royaltyFee, 
-        block.timestamp
+        royaltyFee
       );
     }
     
@@ -191,14 +184,13 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       tokenIds, 
       tokenURIs, 
       royaltyFee, 
-      artistAddress, 
-      block.timestamp
+      artistAddress
     );
   }
 
   function buyItem(
     Domain.BuyItem calldata item,
-    bytes memory signature
+    bytes calldata signature
   ) external payable nonReentrant whenNotPaused {
     require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(item.seller.code.length == 0, "GBMarketplace: seller address must not be contract address");
@@ -257,14 +249,13 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         item.tokenId
     );
     emit BoughtItem(
-      item,
-      block.timestamp
+      item
     );
   }
 
   function updateTokenURI(
     Domain.UpdateTokenURI calldata tokenUriInfo,
-    bytes memory signature
+    bytes calldata signature
   ) external nonReentrant whenNotPaused {
     require(tokenUriInfo.collection != address(0), "GBMarketplace: collection address must not be zero address");
     require(tokenUriInfo.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
@@ -292,8 +283,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       tokenUriInfo.collection, 
       _msgSender(), 
       tokenUriInfo.tokenId, 
-      tokenUriInfo.tokenURI, 
-      block.timestamp
+      tokenUriInfo.tokenURI
     );
   }
 
