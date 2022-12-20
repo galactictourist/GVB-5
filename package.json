@@ -33,8 +33,9 @@
   },
   "dependencies": {
     "@chainlink/contracts": "^0.4.1",
-    "@openzeppelin/contracts": "^4.5.0",
+    "@openzeppelin/contracts": "^4.8.0",
     "@openzeppelin/hardhat-upgrades": "^1.19.0",
+    "erc721a": "^4.2.3",
     "ethers": "^5.5.4",
     "fs-extra": "^10.0.0",
     "merkletreejs": "^0.2.32",

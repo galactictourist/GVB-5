@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-artifact-1",
-  "contractName": "IGBCollection",
-  "sourceName": "contracts/interfaces/IGBCollection.sol",
+  "contractName": "IGB721Contract",
+  "sourceName": "contracts/interfaces/IGB721Contract.sol",
   "abi": [
     {
       "inputs": [

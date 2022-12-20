@@ -6,16 +6,16 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
-    const ownerAddres = String(process.env.OWNER_ADDRESS!);
-    const adminWalletAddress = String(process.env.ADMIN_WALLET_ADDRESS!);
+    const marketplaceAddress = (await load('GBMarketplace')).address;
 
-    const contractAddress = (await load('GBMarketplace')).address
+    const contractAddress = (await load('GB721Contract')).address
     console.log(contractAddress)
     await hre.run("verify:verify", {
         address: contractAddress,
         constructorArguments: [
-            ownerAddres,
-            adminWalletAddress
+            "Givabit ERC-721Contract",
+            "GBC",
+            marketplaceAddress
         ],
     });
 }

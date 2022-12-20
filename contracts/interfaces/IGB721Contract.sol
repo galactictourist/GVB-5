@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-interface IGBCollection {
+interface IGB721Contract {
   function setTokenURI(uint256 tokenId, string memory tokenURI_) external ; 
   function setMarketplaceAddress(address _marketplaceAddress) external ;
   function mintToken(

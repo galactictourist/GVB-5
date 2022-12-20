@@ -5,17 +5,17 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
-    const marketplaceAddress = (await load('GBMarketplace')).address;
+    const ownerAddres = String(process.env.OWNER_ADDRESS!);
 
-    const factory = await ethers.getContractFactory("GBCollection");
+    const factory = await ethers.getContractFactory("GBPrimaryCollection");
     const contract = await factory.deploy(
-        "Givabit Collection",
-        "GBC",
-        marketplaceAddress
+        "Givabit Primary Collection",
+        "GPC",
+        ownerAddres
     );
     await contract.deployed();
-    console.log("GBCollection deployed to:", contract.address);
-    await save('GBCollection', {
+    console.log("GBPrimaryCollection deployed to:", contract.address);
+    await save('GBPrimaryCollection', {
         address: contract.address
     });
 }

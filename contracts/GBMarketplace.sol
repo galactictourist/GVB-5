@@ -8,85 +8,69 @@ import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "./interfaces/IGBCollection.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/interfaces/IERC2981.sol";
+import "./interfaces/IGB721Contract.sol";
+import {
+  OrderItem, 
+  Order
+} from "./library/GBStructs.sol";
 import "./library/Domain.sol";
 
 contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
-  event AddedSingleItem(
-    address collection,
-    address from,
-    uint256 tokenId,
-    string tokenURI,
-    uint96 royaltyFee
-  );
-  
-  event AddedMultiplePrimaryItems(
-    address collection,
-    address from,
-    uint256[] tokenIds,
-    string[] tokenURIs,
-    uint96 royaltyFee,
-    address artistAddress
-  );
-
   event BoughtItem(
-    Domain.BuyItem item
+    OrderItem item,
+    bytes32 orderHash
   );
 
   event UpdatedTokenURI(
-    address collection,
-    address from,
+    address nftContract,
+    address owner,
     uint256 tokenId,
     string tokenURI
   );
 
-  event SetCollectionAddress(address collectionAddress, bool status);
-  event SetVerifyRole(address verifyRoleAddress);
+  event SetNftContractAddress(address nftContract, bool status);
   event SetAdminWallet(address account);
   event SetPlatformFee(uint96 platformFee);
+  event OrderCancelled(bytes32 orderHash, address account);
 
-  struct ItemInfo {
-    address royaltyAddress;
-    uint96 royaltyFee;   // 2 decimals
-    bool isPrimaryCollection;
-  }
+  bytes4 private constant InterfaceId_ERC721 = 0x80ac58cd;
+  bytes4 private constant InterfaceId_ERC1155 = 0xd9b67a26;
 
-  mapping(address => bool) public gbCollection;
-  mapping(address => uint256) public nonces;
-  mapping(address => mapping(uint256 => ItemInfo)) public itemInfo;   // collection => tokenId => ItemInfo
-
-  bytes32 public constant VERIFY_ROLE = keccak256("VERIFY_ROLE");
+  mapping(address => bool) public gbNftContracts;
+  mapping(bytes32 => bool) public orderCancelled;  // orderHash => isCancelled
 
   address private adminWallet;
   uint96 public platformFee = 250;   // 2.5% platform fee
 
   constructor(
     address owner,
-    address verifyRoleAddress,
     address adminWallet_
   ) EIP712("GBMarketplace", "1.0.0") {
     adminWallet = adminWallet_;
     _setupRole(DEFAULT_ADMIN_ROLE, owner);
-    _setupRole(VERIFY_ROLE, verifyRoleAddress);
+  }
+
+  modifier contractCheck(address contractAddress) {
+    require(
+      IERC721(contractAddress).supportsInterface(InterfaceId_ERC721) || 
+      IERC1155(contractAddress).supportsInterface(InterfaceId_ERC1155),
+      "GBMarketplace: This is not ERC721/ERC1155 contract"
+    );
+    _;
   }
 
   function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControl) returns (bool) {
     return super.supportsInterface(interfaceId);
   }
 
-  function setGBCollectionAddress(address collectionAddress, bool isCollection) external onlyRole(DEFAULT_ADMIN_ROLE)
+  function setNftContractAddress(address nftContractAddress, bool isEnabled) external onlyRole(DEFAULT_ADMIN_ROLE)
   {
-    require (collectionAddress != address(0), "gbCollection address must not be zero address");
-    gbCollection[collectionAddress] = isCollection;
-    emit SetCollectionAddress(collectionAddress, isCollection);
-  }
-
-  function setVerifyRole(address verifyRoleAddress) external onlyRole(DEFAULT_ADMIN_ROLE)
-  {
-    require (verifyRoleAddress != address(0), "verifyRole address must not be zero address");
-    _grantRole(VERIFY_ROLE, verifyRoleAddress);
-    emit SetVerifyRole(verifyRoleAddress);
+    require (nftContractAddress != address(0), "NftContract address must not be zero address");
+    gbNftContracts[nftContractAddress] = isEnabled;
+    emit SetNftContractAddress(nftContractAddress, isEnabled);
   }
 
   function setAdminWallet(address adminWallet_) external onlyRole(DEFAULT_ADMIN_ROLE)
@@ -103,188 +87,155 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     emit SetPlatformFee(platformFee_);
   }
 
-  function addSingleItem(
-    Domain.AddSingleItem calldata item,
-    bytes calldata signature
-  ) external nonReentrant whenNotPaused {
-    require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
-    require(item.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
-    require(gbCollection[item.collection], "GBMarketplace: Invalid collection address");
-    require(block.timestamp <= item.deadline, "GBMarketplace: Signature expired");
-    uint256 validNonce = nonces[_msgSender()];
-    require(
-      _verify(
-        _hashTypedDataV4(Domain._hashAddSingleItem(item, validNonce)),
-        signature
-      ), 
-      "Invalid signature"
-    );
-    itemInfo[item.collection][item.tokenId] = ItemInfo(
-      _msgSender(), 
-      item.royaltyFee, 
-      false
-    );
-    
-    unchecked {
-      ++ nonces[_msgSender()];
-    }
+  function buyItems(
+    Order[] calldata orders
+  ) external payable nonReentrant whenNotPaused returns(bool[] memory ordersResult, string[] memory ordersStatus, bytes32[] memory ordersHash) {
+    uint256 totalValue = msg.value;
+    uint256 orderLength = orders.length;
+    ordersResult = new bool[](orderLength);
+    ordersStatus = new string[](orderLength);
+    ordersHash = new bytes32[](orderLength);
+    for (uint256 i; i < orderLength; _unsafe_inc(i)) {
+      Order memory order = orders[i];
+      OrderItem memory orderItem = order.orderItem;
+      bytes memory orderSignature = order.signature;
+      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, totalValue);
+      if (!ordersResult[i]) {
+        continue;
+      }
+      
+      uint256 charityAmount = 0;
+      charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityFee);
+      Address.sendValue(payable(orderItem.charityAddress), charityAmount + orderItem.additionalPrice);  // send charity amount
 
-    // mint token to nft creator
-    IGBCollection(item.collection).mintToken(
-      _msgSender(),
-      item.tokenId,
-      item.royaltyFee,
-      item.tokenURI
-    );
-    emit AddedSingleItem(
-      item.collection, 
-      _msgSender(), 
-      item.tokenId, 
-      item.tokenURI, 
-      item.royaltyFee
-    );
-  }
+      uint256 platformAmount = _calcFeeAmount(orderItem.itemPrice, platformFee);
+      Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
 
-  function addPrimaryMultipleItems(
-    address collection,
-    uint256[] calldata tokenIds,
-    uint96 royaltyFee,
-    string[] calldata tokenURIs,
-    address artistAddress
-  ) external nonReentrant whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
-    require(collection != address(0), "GBMarketplace: collection address must not be zero address");
-    require(tokenIds.length == tokenURIs.length, "GBMarketplace: tokenIds and tokenURIs length must be equal");
-    require(gbCollection[collection], "GBMarketplace: Invalid collection address");
-    
-    for (uint256 i = 0; i < tokenIds.length; _unsafe_inc(i)) {
-      require(tokenIds[i] > 0, "GBMarketplace: tokenId must be greater than zero");
-      itemInfo[collection][tokenIds[i]] = ItemInfo(
-        artistAddress, 
-        royaltyFee, 
-        true
+      address royaltyReceiver;
+      uint256 royaltyAmount;
+      if (gbNftContracts[orderItem.nftContract]) {
+        if (!orderItem.isMinted) {
+          // mint token to nft creator
+          if (IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721)) {
+            IGB721Contract(orderItem.nftContract).mintToken(
+              orderItem.seller,
+              orderItem.tokenId,
+              orderItem.royaltyFee,
+              orderItem.tokenURI
+            );
+          }
+        }
+        (royaltyReceiver, royaltyAmount) = IERC2981(orderItem.nftContract)
+          .royaltyInfo(
+            orderItem.tokenId, 
+            orderItem.itemPrice
+          );
+        Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
+      }
+      unchecked {  
+        uint256 totalFeeAmount = charityAmount + royaltyAmount + platformAmount;
+        if (orderItem.itemPrice > totalFeeAmount) {
+          Address.sendValue(payable(orderItem.seller), orderItem.itemPrice - totalFeeAmount); // send rest amount to seller
+        }
+      }
+
+      // transfer NFT from seller to buyer
+      if (IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721)) {
+        IERC721(orderItem.nftContract).safeTransferFrom(
+          orderItem.seller,
+          _msgSender(),
+          orderItem.tokenId
+        );
+      }
+      emit BoughtItem(
+        orderItem,
+        ordersHash[i]
       );
-      IGBCollection(collection).mintToken(
-        artistAddress,
-        tokenIds[i],
-        royaltyFee,
-        tokenURIs[i]
-      );
-      emit AddedSingleItem(
-        collection, 
-        artistAddress, 
-        tokenIds[i], 
-        tokenURIs[i], 
-        royaltyFee
-      );
-    }
-    
-    emit AddedMultiplePrimaryItems(
-      collection, 
-      _msgSender(), 
-      tokenIds, 
-      tokenURIs, 
-      royaltyFee, 
-      artistAddress
-    );
-  }
-
-  function buyItem(
-    Domain.BuyItem calldata item,
-    bytes calldata signature
-  ) external payable nonReentrant whenNotPaused {
-    require(item.collection != address(0), "GBMarketplace: collection address must not be zero address");
-    require(item.seller.code.length == 0, "GBMarketplace: seller address must not be contract address");
-    require(item.charityAddress != address(0), "GBMarketplace: charity address must not be zero address");
-    require(
-      item.charityFee >= 1000 && item.charityFee <= 10000, 
-      "GBMarketplace: charity percentage must be between 10% and 100%"
-    );
-    ItemInfo memory nftItemInfo = itemInfo[item.collection][item.tokenId];
-    require(item.charityFee + platformFee + nftItemInfo.royaltyFee <= 10000, "GBMarketplace: total fee must be less than 100%");
-    require(item.itemPrice > 0, "GBMarketplace: NFT Price must be greater than 0");
-    require(msg.value >= item.itemPrice + item.additionalPrice, "GBMarketplace: Insufficient funds");
-    require(block.timestamp <= item.deadline, "GBMarketplace: Signature expired");
-    require(gbCollection[item.collection], "GBMarketplace: Invalid collection address");
-    uint256 validNonce = nonces[_msgSender()];
-    require(
-      _verify(
-        _hashTypedDataV4(Domain._hashBuyItem(item, validNonce)),
-        signature
-      ), 
-      "Invalid signature"
-    );
-
-    uint256 charityAmount = 0;
-    charityAmount = _calcFeeAmount(item.itemPrice, item.charityFee);
-    Address.sendValue(payable(item.charityAddress), charityAmount + item.additionalPrice);
-
-    (address royaltyReceiver, uint256 royaltyAmount) = IGBCollection(item.collection).royaltyInfo(item.tokenId, item.itemPrice);
-    Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
-
-    uint256 platformAmount = _calcFeeAmount(item.itemPrice, platformFee);
-    Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
-
-    uint256 sellerAmount = 0;
-    unchecked {
-      sellerAmount = item.itemPrice - charityAmount - royaltyAmount - platformAmount;
-    }
-    if (sellerAmount > 0) {
-      if (nftItemInfo.isPrimaryCollection) {  // check if nft is primary collection
-        uint256 artistAmount = sellerAmount / 2;
-        Address.sendValue(payable(item.seller), artistAmount);
-        Address.sendValue(payable(adminWallet), sellerAmount - artistAmount);
-      } else {
-        Address.sendValue(payable(item.seller), sellerAmount); // send rest amount to seller
+      unchecked {
+        totalValue = totalValue - orderItem.itemPrice - orderItem.additionalPrice;
       }
     }
+  }
 
-    unchecked {
-      ++ nonces[_msgSender()];
+  function cancelOrders(OrderItem[] calldata orderItems) external returns(bool[] memory cancelResults, string[] memory cancelStatus) {
+    uint256 orderItemsLength = orderItems.length;
+    cancelResults = new bool[](orderItemsLength);
+    cancelStatus = new string[](orderItemsLength);
+    for(uint256 i; i < orderItems.length; _unsafe_inc(i)) {
+      OrderItem calldata order = orderItems[i];
+      if(msg.sender != order.seller) {
+        cancelStatus[i] = "GBMarketplace: Invalid order canceller.";
+      } else {
+        cancelResults[i] = true;
+        bytes32 orderHash = Domain._hashOrderItem(order);
+        orderCancelled[orderHash] = true;
+        emit OrderCancelled(orderHash, order.seller);
+      }
     }
-
-    // transfer NFT from seller to buyer
-    IERC721(item.collection).safeTransferFrom(
-        item.seller,
-        _msgSender(),
-        item.tokenId
-    );
-    emit BoughtItem(
-      item
-    );
   }
 
   function updateTokenURI(
-    Domain.UpdateTokenURI calldata tokenUriInfo,
-    bytes calldata signature
-  ) external nonReentrant whenNotPaused {
-    require(tokenUriInfo.collection != address(0), "GBMarketplace: collection address must not be zero address");
-    require(tokenUriInfo.tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
-    require(gbCollection[tokenUriInfo.collection], "GBMarketplace: Invalid collection address");
-    require(block.timestamp <= tokenUriInfo.deadline, "GBMarketplace: Signature expired");
-    uint256 validNonce = nonces[_msgSender()];
+    address nftContract,
+    uint256 tokenId,
+    string memory tokenURI
+  ) external nonReentrant whenNotPaused contractCheck(nftContract){
+    require(nftContract != address(0), "GBMarketplace: nftContract address must not be zero address");
+    require(tokenId > 0, "GBMarketplace: tokenId must be greater than zero");
+    require(gbNftContracts[nftContract], "GBMarketplace: Invalid nftContract address");
     require(
-      _verify(
-        _hashTypedDataV4(Domain._hashUpdateTokenURI(tokenUriInfo, validNonce)),
-        signature
-      ), 
-      "Invalid signature"
-    );
-    require(
-      IGBCollection(tokenUriInfo.collection).ownerOf(tokenUriInfo.tokenId) == _msgSender(), 
-      "GBMarketplace: Only NFT owner can update charity info"
+      IGB721Contract(nftContract).ownerOf(tokenId) == msg.sender, 
+      "GBMarketplace: is not nft owner"
     );
     
-    unchecked {
-      ++ nonces[_msgSender()];
-    }
-    IGBCollection(tokenUriInfo.collection).setTokenURI(tokenUriInfo.tokenId, tokenUriInfo.tokenURI);
+    IGB721Contract(nftContract).setTokenURI(tokenId, tokenURI);
     
     emit UpdatedTokenURI(
-      tokenUriInfo.collection, 
-      _msgSender(), 
-      tokenUriInfo.tokenId, 
-      tokenUriInfo.tokenURI
+      nftContract, 
+      msg.sender, 
+      tokenId, 
+      tokenURI
     );
+  }
+
+  function _checkOrder(
+    OrderItem memory orderItem, 
+    bytes memory orderSignature,
+    uint256 totalValue
+  ) internal view returns (bool checkResult, string memory checkStatus, bytes32 orderHash){
+    if(orderItem.nftContract == address(0)) {
+      checkStatus = "GBMarketplace: nftContract address must not be zero address";
+    } else if (
+      !IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721) &&
+      !IERC1155(orderItem.nftContract).supportsInterface(InterfaceId_ERC1155)
+    ) {
+      checkStatus = "GBMarketplace: nftContract address must not be zero address";
+    } else if (Address.isContract(orderItem.seller)) {
+      checkStatus = "GBMarketplace: seller address must not be contract address";
+    } else if (orderItem.charityAddress == address(0)) {
+      checkStatus = "GBMarketplace: charity address must not be zero address";
+    } else if(orderItem.charityFee < 1000 || orderItem.charityFee > 10000) {
+      checkStatus = "GBMarketplace: charity percentage must be between 10% and 100%";
+    } else if (orderItem.royaltyFee > 10000) {
+      checkStatus = "GBMarketplace: royalty fee must not be greater than 100%";
+    } else if (orderItem.charityFee + platformFee + orderItem.royaltyFee > 10000) {
+      checkStatus = "GBMarketplace: total fee must be less than 100%";
+    } else if (orderItem.itemPrice == 0) {
+      checkStatus = "GBMarketplace: NFT Price must be greater than 0";
+    } else if (totalValue < orderItem.itemPrice + orderItem.additionalPrice) {
+      checkStatus = "GBMarketplace: Insufficient funds";
+    } else if (orderItem.deadline < block.timestamp) {
+      checkStatus = "GBMarketplace: Signature expired";
+    } else {
+      orderHash = Domain._hashOrderItem(orderItem);
+      if (orderCancelled[orderHash]) {
+        checkStatus = "GBMarketplace: Order is already cancelled";
+      } else if (!_verify(orderItem.seller, _hashTypedDataV4(orderHash),orderSignature)) {
+        checkStatus = "GBMarketplace: Invalid signature";
+      } else {
+        checkResult = true;
+        checkStatus = "GBMarketplace: Passed";
+      }
+    }
   }
 
   function _calcFeeAmount(uint256 amount, uint96 fee) internal pure returns (uint256) {
@@ -297,10 +248,10 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     }
   }
 
-  function _verify(bytes32 digest, bytes memory signature)
-  internal view returns (bool)
+  function _verify(address account, bytes32 digest, bytes memory signature)
+  internal pure returns (bool)
   {
-      return hasRole(VERIFY_ROLE, ECDSA.recover(digest, signature));
+    return account == ECDSA.recover(digest, signature);
   }
 
   function pause() public virtual onlyRole(DEFAULT_ADMIN_ROLE) {

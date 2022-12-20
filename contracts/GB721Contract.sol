@@ -6,9 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 
-contract GBCollection is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGuard {
-    
-  event MintedNFT(address mintAddress, uint256 tokenId);
+contract GB721Contract is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGuard {
 
   bytes32 public constant MARKETPLACE_ROLE = keccak256("MARKETPLACE_ROLE");
 
@@ -26,7 +24,7 @@ contract GBCollection is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGua
 
   function setTokenURI(uint256 tokenId, string memory tokenURI_) external onlyRole(MARKETPLACE_ROLE)
   {
-    require(_exists(tokenId), "GBCollection: This token is not minted");
+    require(_exists(tokenId), "GB721Contract: This token is not minted");
     _setTokenURI(tokenId, tokenURI_);
   }
 
@@ -44,7 +42,7 @@ contract GBCollection is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGua
   ) external onlyRole(MARKETPLACE_ROLE) nonReentrant {
     require(
       !_exists(tokenId),
-      "GBCollection: This token is already minted"
+      "GB721Contract: This token is already minted"
     );
 
     _mint(account, tokenId);
@@ -54,7 +52,6 @@ contract GBCollection is ERC721URIStorage, ERC2981, AccessControl, ReentrancyGua
 
     // set approve for marketplace
     _setApprovalForAll(account, _msgSender(), true);
-
-    emit MintedNFT(account, tokenId);
   }
+
 }
