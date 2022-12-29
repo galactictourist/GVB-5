@@ -21,6 +21,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   event BoughtItem(
     OrderItem item,
+    uint256 additionalAmount,
     bytes32 orderHash
   );
 
@@ -41,6 +42,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   mapping(address => bool) public gbNftContracts;
   mapping(bytes32 => bool) public orderCancelled;  // orderHash => isCancelled
+  mapping(bytes32 => bool) public orderProcessed;  // orderHash => isProcessed
 
   address private adminWallet;
   uint96 public platformFee = 250;   // 2.5% platform fee
@@ -95,20 +97,21 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     ordersResult = new bool[](orderLength);
     ordersStatus = new string[](orderLength);
     ordersHash = new bytes32[](orderLength);
-    for (uint256 i; i < orderLength; _unsafe_inc(i)) {
+    for (uint256 i; i < orderLength; i = _unsafe_inc(i)) {
       Order memory order = orders[i];
       OrderItem memory orderItem = order.orderItem;
       bytes memory orderSignature = order.signature;
-      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, totalValue);
+      uint256 additionalAmount = order.additionalAmount;
+      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, totalValue, additionalAmount);
       if (!ordersResult[i]) {
         continue;
       }
       
       uint256 charityAmount = 0;
-      charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityFee);
-      Address.sendValue(payable(orderItem.charityAddress), charityAmount + orderItem.additionalPrice);  // send charity amount
+      charityAmount = _calcFeeAmount(orderItem.itemAmount, orderItem.charityShare);
+      Address.sendValue(payable(orderItem.charityAddress), charityAmount + additionalAmount);  // send charity amount
 
-      uint256 platformAmount = _calcFeeAmount(orderItem.itemPrice, platformFee);
+      uint256 platformAmount = _calcFeeAmount(orderItem.itemAmount, platformFee);
       Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
 
       address royaltyReceiver;
@@ -128,14 +131,14 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         (royaltyReceiver, royaltyAmount) = IERC2981(orderItem.nftContract)
           .royaltyInfo(
             orderItem.tokenId, 
-            orderItem.itemPrice
+            orderItem.itemAmount
           );
         Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
       }
-      unchecked {  
+      unchecked { 
         uint256 totalFeeAmount = charityAmount + royaltyAmount + platformAmount;
-        if (orderItem.itemPrice > totalFeeAmount) {
-          Address.sendValue(payable(orderItem.seller), orderItem.itemPrice - totalFeeAmount); // send rest amount to seller
+        if (orderItem.itemAmount > totalFeeAmount) {
+          Address.sendValue(payable(orderItem.seller), orderItem.itemAmount - totalFeeAmount); // send rest amount to seller
         }
       }
 
@@ -147,13 +150,16 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
           orderItem.tokenId
         );
       }
+      unchecked {
+        totalValue = totalValue - orderItem.itemAmount - additionalAmount;
+      }
+      orderProcessed[ordersHash[i]] = true;
+
       emit BoughtItem(
         orderItem,
+        additionalAmount,
         ordersHash[i]
       );
-      unchecked {
-        totalValue = totalValue - orderItem.itemPrice - orderItem.additionalPrice;
-      }
     }
   }
 
@@ -161,7 +167,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     uint256 orderItemsLength = orderItems.length;
     cancelResults = new bool[](orderItemsLength);
     cancelStatus = new string[](orderItemsLength);
-    for(uint256 i; i < orderItems.length; _unsafe_inc(i)) {
+    for(uint256 i; i < orderItems.length; i = _unsafe_inc(i)) {
       OrderItem calldata order = orderItems[i];
       if(msg.sender != order.seller) {
         cancelStatus[i] = "GBMarketplace: Invalid order canceller.";
@@ -200,6 +206,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   function _checkOrder(
     OrderItem memory orderItem, 
     bytes memory orderSignature,
+    uint256 additionalAmount,
     uint256 totalValue
   ) internal view returns (bool checkResult, string memory checkStatus, bytes32 orderHash){
     if(orderItem.nftContract == address(0)) {
@@ -213,15 +220,15 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       checkStatus = "GBMarketplace: seller address must not be contract address";
     } else if (orderItem.charityAddress == address(0)) {
       checkStatus = "GBMarketplace: charity address must not be zero address";
-    } else if(orderItem.charityFee < 1000 || orderItem.charityFee > 10000) {
+    } else if(orderItem.charityShare < 1000 || orderItem.charityShare > 10000) {
       checkStatus = "GBMarketplace: charity percentage must be between 10% and 100%";
     } else if (orderItem.royaltyFee > 10000) {
       checkStatus = "GBMarketplace: royalty fee must not be greater than 100%";
-    } else if (orderItem.charityFee + platformFee + orderItem.royaltyFee > 10000) {
+    } else if (orderItem.charityShare + platformFee + orderItem.royaltyFee > 10000) {
       checkStatus = "GBMarketplace: total fee must be less than 100%";
-    } else if (orderItem.itemPrice == 0) {
+    } else if (orderItem.itemAmount == 0) {
       checkStatus = "GBMarketplace: NFT Price must be greater than 0";
-    } else if (totalValue < orderItem.itemPrice + orderItem.additionalPrice) {
+    } else if (totalValue < orderItem.itemAmount + additionalAmount) {
       checkStatus = "GBMarketplace: Insufficient funds";
     } else if (orderItem.deadline < block.timestamp) {
       checkStatus = "GBMarketplace: Signature expired";
@@ -229,6 +236,8 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       orderHash = Domain._hashOrderItem(orderItem);
       if (orderCancelled[orderHash]) {
         checkStatus = "GBMarketplace: Order is already cancelled";
+      } else if (orderProcessed[orderHash]) {
+        checkStatus = "GBMarketplace: Order is already processed";
       } else if (!_verify(orderItem.seller, _hashTypedDataV4(orderHash),orderSignature)) {
         checkStatus = "GBMarketplace: Invalid signature";
       } else {

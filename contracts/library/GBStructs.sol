@@ -10,15 +10,16 @@ struct OrderItem {
   uint256 tokenId;
   string tokenURI;
   uint256 quantity;
-  uint256 itemPrice;  // listed price
-  uint256 additionalPrice;  // additional price for charity
+  uint256 itemAmount;  // listed price
   address charityAddress;
-  uint96 charityFee;
+  uint96 charityShare;
   uint96 royaltyFee;
   uint256 deadline;   // expiry time of listed NFT
+  uint256 salt;
 }
 
 struct Order {
   OrderItem orderItem;
+  uint256 additionalAmount;
   bytes signature;
 }

@@ -39,10 +39,10 @@ contract GBPrimaryCollection is ERC721A, ERC2981, Ownable {
   }
 
   function mint(
-    uint256 quantity,
-    uint96 royaltyFee
+    uint256 quantity
+    // uint96 royaltyFee
   ) external onlyOwner {
-    require(royaltyFee <= 10000, "RoyaltyFee must not be greater than 100%");
+    // require(royaltyFee <= 10000, "RoyaltyFee must not be greater than 100%");
     uint256 totalSupply = totalSupply();
     require(totalSupply <= 10000, "Cannot mint more than 10000 NFTs");
     // _setDefaultRoyalty(msg.sender, royaltyFee); 

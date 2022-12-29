@@ -2,6 +2,7 @@ import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { BigNumberish, Contract } from 'ethers';
 import { parseUnits } from 'ethers/lib/utils'
 import { ethers } from 'hardhat';
+import * as uuid from "uuid";
 const { BigNumber } = require('ethers')
 
 export enum TOKEN_DECIMAL {
@@ -21,30 +22,46 @@ export function getBigNumber(amount:number | string, decimals = 18) {
 
 const GB_MARKETPLACE_CONTRACT_NAME = "GBMarketplace";
 const GB_MARKETPLACE_VERSION = "1.0.0";
-const ADD_SINGLE_ITEM_DATA_TYPE = {
-  AddSingleItem: [
-    { name: "account", type: "address" },
-    { name: "collection", type: "address" },
+const ORDER_ITEM_DATA_TYPE = {
+  OrderItem: [
+    { name: "nftContract", type: "address" },
+    { name: "seller", type: "address" },
+    { name: "isMinted", type: "bool" },
     { name: "tokenId", type: "uint256" },
-    { name: "royaltyFee", type: "uint96" },
     { name: "tokenURI", type: "string" },
+    { name: "quantity", type: "uint256" },
+    { name: "itemAmount", type: "uint256" },
+    { name: "charityAddress", type: "address" },
+    { name: "charityShare", type: "uint96" },
+    { name: "royaltyFee", type: "uint96" },
     { name: "deadline", type: "uint256" },
-    { name: "nonce", type: "uint256" }
+    { name: "salt", type: "uint256" }
   ],
 };
 
-export type SingleItemData = {
-  account: string,
-  collection: string,
+export type OrderItemData = {
+  nftContract: BigNumberish,
+  seller: BigNumberish,
+  isMinted: Boolean,
   tokenId: BigNumberish,
+  tokenURI: BigNumberish,
+  quantity: BigNumberish,
+  itemAmount: BigNumberish,
+  charityAddress: BigNumberish,
+  charityShare: BigNumberish,
   royaltyFee: BigNumberish,
-  tokenURI: string,
   deadline: BigNumberish,
-  nonce: BigNumberish
+  salt: BigNumberish
 };
 
-export async function signSingleItemData(
-  singleItemData: Object,
+export type OrderData = {
+  orderItem: OrderItemData,
+  additionalAmount: BigNumberish,
+  signature: BigNumberish
+}
+
+export async function signOrderItemData(
+  orderItemData: Object,
   gbMarketplaceContract: Contract,
   signer: SignerWithAddress
 ): Promise<string> {
@@ -56,9 +73,13 @@ export async function signSingleItemData(
   };
   return await signer._signTypedData(
     domain,
-    ADD_SINGLE_ITEM_DATA_TYPE,
-    singleItemData
+    ORDER_ITEM_DATA_TYPE,
+    orderItemData
   );
 }
 
-export * from './time';
+export function generateSalt() {
+  const uuidValue = uuid.v4();
+  const salt = BigNumber.from(ethers.utils.keccak256(uuid.parse(uuidValue)));
+  return salt;
+}
