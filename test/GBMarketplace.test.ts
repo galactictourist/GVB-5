@@ -3,7 +3,7 @@ import { ethers, network } from 'hardhat';
 const hre = require("hardhat");
 import * as helpers from "@nomicfoundation/hardhat-network-helpers";
 import { parseUnits, formatUnits, parseEther } from "ethers/lib/utils";
-import { GB721Contract, GBMarketplace, Domain, GBPrimaryCollection } from "../typechain-types";
+import { GB721Contract, GBMarketplace, Domain, GBPrimaryCollection, ERC721 } from "../typechain-types";
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 
 import {
@@ -12,6 +12,7 @@ import {
   signOrderItemData,
   generateSalt,
   OrderData,
+  ItemType,
 } from './utils'
 import { BigNumber, Contract, Signer } from 'ethers';
 
@@ -20,35 +21,31 @@ describe('Test marketplace functions', () => {
   let gB721Contract: GB721Contract
   let gbPrimaryCollection: GBPrimaryCollection
   let oldOwner: SignerWithAddress
-  let owner: SignerWithAddress
-  let alice: SignerWithAddress
-  let bob: SignerWithAddress
-  let carol: SignerWithAddress
+  let marketplaceOwner: SignerWithAddress
+  let alice: SignerWithAddress  // // primary collection nfts owner(seller)
+  let bob: SignerWithAddress  // buyer
+  let carol: SignerWithAddress  // charity
   let adminWallet: SignerWithAddress
-  let ownerAddress: string
+  let marketplaceOwnerAddress: string
   let adminWalletAddress: string
-  let aliceAddress: string
-  let bobAddress: string
-  let carolAddress: string
+  let aliceAddress: string  // primary collection nfts owner address(seller address)
+  let bobAddress: string  // buyer address
+  let carolAddress: string  // charity address
 
-  let backendNonce = 0;
-  let tokenId = 1;
-  let royaltyFee = getBigNumber('0.2', 2);
   let tokenURI = "https://bafybeicea5ajmz7gcw25qwkungxrn3ayalwt5igdawviquztks3d7c77y4.ipfs.nftstorage.link/";
-  let singleItemData: OrderItemData;
 
   let ordersData: OrderData[];
   let totalPrice: BigNumber = getBigNumber(0);
   before(async () => {
     [
-      owner,
+      marketplaceOwner,
       oldOwner,
       adminWallet,
       alice,
       bob,
       carol
     ] = await ethers.getSigners()
-    ownerAddress = await owner.getAddress()
+    marketplaceOwnerAddress = await marketplaceOwner.getAddress()
     adminWalletAddress = await adminWallet.getAddress()
     aliceAddress = await alice.getAddress()
     bobAddress = await bob.getAddress()
@@ -57,7 +54,7 @@ describe('Test marketplace functions', () => {
 
     const contractFactory1 = await ethers.getContractFactory("GBMarketplace")
     gbMarketplace = (await contractFactory1.connect(oldOwner).deploy(
-      ownerAddress,
+      marketplaceOwnerAddress,
       adminWalletAddress
     )) as GBMarketplace
     await gbMarketplace.deployed()
@@ -86,7 +83,8 @@ describe('Test marketplace functions', () => {
       {
         orderItem: {
           nftContract: gbPrimaryCollection.address,
-          seller: owner.address,
+          itemType: ItemType.ERC721,
+          seller: aliceAddress,
           isMinted: true,
           tokenId: 0,
           tokenURI: tokenURI,
@@ -104,7 +102,8 @@ describe('Test marketplace functions', () => {
       {
         orderItem: {
           nftContract: gbPrimaryCollection.address,
-          seller: owner.address,
+          itemType: ItemType.ERC721,
+          seller: aliceAddress,
           isMinted: true,
           tokenId: 9998,
           tokenURI: tokenURI,
@@ -122,13 +121,14 @@ describe('Test marketplace functions', () => {
       {
         orderItem: {
           nftContract: gbPrimaryCollection.address,
-          seller: owner.address,
+          itemType: ItemType.ERC721,
+          seller: aliceAddress,
           isMinted: true,
           tokenId: 9999,
           tokenURI: tokenURI,
           quantity: 1,
           itemAmount: getBigNumber('0.02'),
-          charityAddress: bobAddress,
+          charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
           deadline: currentTimestamp + 10 * 60,
@@ -149,6 +149,7 @@ describe('Test marketplace functions', () => {
       order.signature = signature;
       const price = BigNumber.from(order.orderItem.itemAmount).add(order.additionalAmount);
       totalPrice = totalPrice.add(price);
+      // console.log(order);
     }
 
     console.log("total price: ", formatUnits(totalPrice));
@@ -168,7 +169,7 @@ describe('Test marketplace functions', () => {
     it('gbCollection address must not be zero address', async () => {
       await expect(
         gbMarketplace
-        .connect(owner)
+        .connect(marketplaceOwner)
         .setNftContractAddress(ethers.constants.AddressZero, true)
       ).to.be.revertedWith('NftContract address must not be zero address');
     })
@@ -176,7 +177,7 @@ describe('Test marketplace functions', () => {
     it('PASS', async () => {
       await expect(
         gbMarketplace
-        .connect(owner)
+        .connect(marketplaceOwner)
         .setNftContractAddress(gB721Contract.address, true)
       ).to.emit(gbMarketplace, 'SetNftContractAddress')
       .withArgs(gB721Contract.address, true);
@@ -187,7 +188,7 @@ describe('Test marketplace functions', () => {
     it('Only Alice can mint nfts', async () => {
       await expect(
         gbPrimaryCollection
-        .connect(owner)
+        .connect(marketplaceOwner)
         .mint(10000)
       ).to.be.reverted;
     })
@@ -207,25 +208,104 @@ describe('Test marketplace functions', () => {
         .mint(10000)
       ).to.be.not.reverted;
     })
+    
+    it('Alice approves NFTs to marketplace contract', async () => {
+      await expect(
+        gbPrimaryCollection
+        .connect(alice)
+        .setApprovalForAll(gbMarketplace.address, true)
+      ).to.emit(gbPrimaryCollection, 'ApprovalForAll')
+      .withArgs(aliceAddress, gbMarketplace.address, true);
+    })
   })
 
   describe('Cancel listed nfts', async () => {
-    it('List nfts', async () => {
+    it('Cannot cancel listed order unless nft owner', async () => {
       await expect(
-        gbMarketplace.cancelOrders([
-          ordersData[1].orderItem
-        ])
-      )
+        gbMarketplace
+        .callStatic
+        .cancelOrders([ordersData[1].orderItem])
+      ).to.be.not.reverted;
+      const cancelTx = await gbMarketplace.cancelOrders([ordersData[1].orderItem]);
+      const receipt = await cancelTx.wait();
+      const cancelledEvent = receipt.events[0];
+      expect(cancelledEvent).to.not.undefined;
+      expect(cancelledEvent["args"]["cancelResults"][0])
+      .to.equal(false);
+      expect(cancelledEvent["args"]["cancelStatus"][0])
+      .to.equal("GBMarketplace: Invalid order canceller.");
+    })
+    it('Cancel listed order', async () => {
+      await expect(
+        gbMarketplace
+        .connect(alice)
+        .callStatic
+        .cancelOrders([ordersData[1].orderItem])
+      ).to.be.not.reverted;
+      const cancelTx = await gbMarketplace
+      .connect(alice)
+      .cancelOrders([ordersData[1].orderItem]);
+      const receipt = await cancelTx.wait();
+      const cancelledEvent = receipt.events[0];
+      expect(cancelledEvent).to.not.undefined;
+      expect(cancelledEvent["args"]["cancelResults"][0])
+      .to.equal(true);
+      expect(cancelledEvent["args"]["cancelStatus"][0])
+      .to.equal("GBMarketplace: Cancelled order.");
     })
   })
 
   describe('Buy items', async () => {
+    it('Not enough tokens', async() => {
+      await expect(
+        gbMarketplace
+        .connect(bob)
+        .buyItems(ordersData, {value: getBigNumber(0.1)})
+      ).to.be.not.reverted;
+
+      const tx = await gbMarketplace
+      .connect(bob)
+      .buyItems(ordersData, {value: getBigNumber(0.1)});
+      const receipt = await tx.wait();
+
+      const events = receipt.events;
+      expect(events).to.not.undefined;
+
+      for(const event of events) {
+        console.log(JSON.stringify(event.args.ordersResult, null, 2));
+        console.log(JSON.stringify(event.args.ordersStatus, null, 2));
+        console.log(JSON.stringify(event.args.ordersHash, null, 2));
+      }
+    })
+
     it('PASS!', async () => {
+      console.log("Admin wallet balance before sale: ", formatUnits(await adminWallet.getBalance()));
+      console.log("Carol wallet balance before sale: ", formatUnits(await carol.getBalance()));
+      await expect(
+        gbMarketplace
+        .connect(bob)
+        .buyItems(ordersData, {value: totalPrice})
+      ).to.be.not.reverted;
+
       const tx = await gbMarketplace
       .connect(bob)
       .buyItems(ordersData, {value: totalPrice});
-      // const receipt = await tx.wait();
-      // console.log(receipt);
+      const receipt = await tx.wait();
+
+      const events = receipt.events;
+      expect(events).to.not.undefined;
+
+      for(const event of events) {
+        console.log(JSON.stringify(event.args.ordersResult, null, 2));
+        console.log(JSON.stringify(event.args.ordersStatus, null, 2));
+        console.log(JSON.stringify(event.args.ordersHash, null, 2));
+      }
+
+      expect(await gbPrimaryCollection.balanceOf(aliceAddress)).to.equal(9998);
+      expect(await gbPrimaryCollection.balanceOf(bobAddress)).to.equal(2);
+
+      console.log("Admin wallet balance after sale: ", formatUnits(await adminWallet.getBalance()));
+      console.log("Carol wallet balance after sale: ", formatUnits(await carol.getBalance()));
     })
   })
 });

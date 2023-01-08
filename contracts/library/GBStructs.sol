@@ -5,6 +5,7 @@ import { ItemType } from "./GBEnums.sol";
 
 struct OrderItem {
   address nftContract;
+  uint256 itemType;
   address seller;
   bool isMinted;
   uint256 tokenId;

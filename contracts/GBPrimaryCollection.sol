@@ -22,7 +22,7 @@ contract GBPrimaryCollection is ERC721A, ERC2981, Ownable {
   }
 
   function supportsInterface(bytes4 interfaceId) public view virtual override(ERC721A, ERC2981) returns (bool) {
-    return super.supportsInterface(interfaceId);
+    return ERC721A.supportsInterface(interfaceId);
   }
   
   function setBaseURI(string calldata uri) external onlyOwner {

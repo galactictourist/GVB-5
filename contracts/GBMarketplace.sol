@@ -11,18 +11,21 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import "./interfaces/IGB721Contract.sol";
+import "./interfaces/INftContract.sol";
 import {
   OrderItem, 
   Order
 } from "./library/GBStructs.sol";
+import { ItemType } from "./library/GBEnums.sol";
 import "./library/Domain.sol";
 
 contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   event BoughtItem(
-    OrderItem item,
-    uint256 additionalAmount,
-    bytes32 orderHash
+    Order[] orders,
+    bool[] ordersResult,
+    string[] ordersStatus,
+    bytes32[] ordersHash
   );
 
   event UpdatedTokenURI(
@@ -35,7 +38,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   event SetNftContractAddress(address nftContract, bool status);
   event SetAdminWallet(address account);
   event SetPlatformFee(uint96 platformFee);
-  event OrderCancelled(bytes32 orderHash, address account);
+  event OrderCancelled(bool[] cancelResults, string[] cancelStatus, bytes32[] ordersHash);
 
   bytes4 private constant InterfaceId_ERC721 = 0x80ac58cd;
   bytes4 private constant InterfaceId_ERC1155 = 0xd9b67a26;
@@ -91,22 +94,21 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   function buyItems(
     Order[] calldata orders
-  ) external payable nonReentrant whenNotPaused returns(bool[] memory ordersResult, string[] memory ordersStatus, bytes32[] memory ordersHash) {
+  ) external payable nonReentrant whenNotPaused {
     uint256 totalValue = msg.value;
     uint256 orderLength = orders.length;
-    ordersResult = new bool[](orderLength);
-    ordersStatus = new string[](orderLength);
-    ordersHash = new bytes32[](orderLength);
+    bool[] memory ordersResult = new bool[](orderLength);
+    string[] memory ordersStatus = new string[](orderLength);
+    bytes32[] memory ordersHash = new bytes32[](orderLength);
     for (uint256 i; i < orderLength; i = _unsafe_inc(i)) {
       Order memory order = orders[i];
       OrderItem memory orderItem = order.orderItem;
       bytes memory orderSignature = order.signature;
       uint256 additionalAmount = order.additionalAmount;
-      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, totalValue, additionalAmount);
+      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, additionalAmount, totalValue);
       if (!ordersResult[i]) {
         continue;
       }
-      
       uint256 charityAmount = 0;
       charityAmount = _calcFeeAmount(orderItem.itemAmount, orderItem.charityShare);
       Address.sendValue(payable(orderItem.charityAddress), charityAmount + additionalAmount);  // send charity amount
@@ -154,30 +156,32 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         totalValue = totalValue - orderItem.itemAmount - additionalAmount;
       }
       orderProcessed[ordersHash[i]] = true;
-
-      emit BoughtItem(
-        orderItem,
-        additionalAmount,
-        ordersHash[i]
-      );
     }
+    emit BoughtItem(
+      orders,
+      ordersResult,
+      ordersStatus,
+      ordersHash
+    );
   }
 
-  function cancelOrders(OrderItem[] calldata orderItems) external returns(bool[] memory cancelResults, string[] memory cancelStatus) {
+  function cancelOrders(OrderItem[] calldata orderItems) external whenNotPaused {
     uint256 orderItemsLength = orderItems.length;
-    cancelResults = new bool[](orderItemsLength);
-    cancelStatus = new string[](orderItemsLength);
+    bool[] memory cancelResults = new bool[](orderItemsLength);
+    string[] memory cancelStatus = new string[](orderItemsLength);
+    bytes32[] memory cancelOrdersHash = new bytes32[](orderItemsLength);
     for(uint256 i; i < orderItems.length; i = _unsafe_inc(i)) {
       OrderItem calldata order = orderItems[i];
       if(msg.sender != order.seller) {
         cancelStatus[i] = "GBMarketplace: Invalid order canceller.";
       } else {
         cancelResults[i] = true;
-        bytes32 orderHash = Domain._hashOrderItem(order);
-        orderCancelled[orderHash] = true;
-        emit OrderCancelled(orderHash, order.seller);
+        cancelStatus[i] = "GBMarketplace: Cancelled order.";
+        cancelOrdersHash[i] = Domain._hashOrderItem(order);
+        orderCancelled[cancelOrdersHash[i]] = true;
       }
     }
+    emit OrderCancelled(cancelResults, cancelStatus, cancelOrdersHash);
   }
 
   function updateTokenURI(
@@ -212,10 +216,14 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     if(orderItem.nftContract == address(0)) {
       checkStatus = "GBMarketplace: nftContract address must not be zero address";
     } else if (
-      !IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721) &&
+      !IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721) && 
       !IERC1155(orderItem.nftContract).supportsInterface(InterfaceId_ERC1155)
+    ) { 
+      checkStatus = "GBMarketplace: nftContract address must not be zero address";   
+    } else if (
+      !INftContract(orderItem.nftContract).isApprovedForAll(orderItem.seller, address(this))
     ) {
-      checkStatus = "GBMarketplace: nftContract address must not be zero address";
+      checkStatus = "GBMarketplace: NFT was not approved from seller";
     } else if (Address.isContract(orderItem.seller)) {
       checkStatus = "GBMarketplace: seller address must not be contract address";
     } else if (orderItem.charityAddress == address(0)) {
@@ -238,7 +246,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         checkStatus = "GBMarketplace: Order is already cancelled";
       } else if (orderProcessed[orderHash]) {
         checkStatus = "GBMarketplace: Order is already processed";
-      } else if (!_verify(orderItem.seller, _hashTypedDataV4(orderHash),orderSignature)) {
+      } else if (!_verify(orderItem.seller, _hashTypedDataV4(orderHash), orderSignature)) {
         checkStatus = "GBMarketplace: Invalid signature";
       } else {
         checkResult = true;

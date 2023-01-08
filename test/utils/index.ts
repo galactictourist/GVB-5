@@ -5,14 +5,9 @@ import { ethers } from 'hardhat';
 import * as uuid from "uuid";
 const { BigNumber } = require('ethers')
 
-export enum TOKEN_DECIMAL {
-  MYTOKEN = 18,
-  DEFAULT = ''
-}
-
-export enum TOKEN_NAME {
-  MYTOKEN = 'MYTOKEN',
-  DEFAULT = ''
+export enum ItemType {
+  ERC721,
+  ERC1155
 }
 
 // Defaults to e18 using amount * 10^18
@@ -25,6 +20,7 @@ const GB_MARKETPLACE_VERSION = "1.0.0";
 const ORDER_ITEM_DATA_TYPE = {
   OrderItem: [
     { name: "nftContract", type: "address" },
+    { name: "itemType", type: "uint256" },
     { name: "seller", type: "address" },
     { name: "isMinted", type: "bool" },
     { name: "tokenId", type: "uint256" },
@@ -36,11 +32,12 @@ const ORDER_ITEM_DATA_TYPE = {
     { name: "royaltyFee", type: "uint96" },
     { name: "deadline", type: "uint256" },
     { name: "salt", type: "uint256" }
-  ],
+  ]
 };
 
 export type OrderItemData = {
   nftContract: BigNumberish,
+  itemType: BigNumberish,
   seller: BigNumberish,
   isMinted: Boolean,
   tokenId: BigNumberish,
