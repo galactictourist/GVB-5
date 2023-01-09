@@ -9,7 +9,7 @@ library Domain {
 
   bytes32 constant public ORDER_ITEM_TYPEHASH = 
     keccak256(
-      "OrderItem(address nftContract,uint256 itemType,address seller,bool isMinted,uint256 tokenId,string tokenURI,uint256 quantity,uint256 itemAmount,address charityAddress,uint96 charityShare,uint96 royaltyFee,uint256 deadline,uint256 salt)"
+      "OrderItem(address nftContract,uint256 itemType,address seller,bool isMinted,uint256 tokenId,string tokenURI,uint256 quantity,uint256 itemPrice,address charityAddress,uint96 charityShare,uint96 royaltyFee,uint256 deadline,uint256 salt)"
     );
 
   function _hashOrderItem(OrderItem memory item)
@@ -26,7 +26,7 @@ library Domain {
         item.tokenId,
         keccak256(bytes(item.tokenURI)),
         item.quantity,
-        item.itemAmount,
+        item.itemPrice,
         item.charityAddress,
         item.charityShare,
         item.royaltyFee,

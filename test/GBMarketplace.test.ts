@@ -89,7 +89,7 @@ describe('Test marketplace functions', () => {
           tokenId: 0,
           tokenURI: tokenURI,
           quantity: 1,
-          itemAmount: getBigNumber('0.01'),
+          itemPrice: getBigNumber('0.01'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('15', 2),
           royaltyFee: 0,
@@ -108,7 +108,7 @@ describe('Test marketplace functions', () => {
           tokenId: 9998,
           tokenURI: tokenURI,
           quantity: 1,
-          itemAmount: getBigNumber('0.02'),
+          itemPrice: getBigNumber('0.02'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
@@ -127,7 +127,7 @@ describe('Test marketplace functions', () => {
           tokenId: 9999,
           tokenURI: tokenURI,
           quantity: 1,
-          itemAmount: getBigNumber('0.02'),
+          itemPrice: getBigNumber('0.02'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
@@ -146,7 +146,7 @@ describe('Test marketplace functions', () => {
           tokenId: 86,
           tokenURI: tokenURI,
           quantity: 1,
-          itemAmount: getBigNumber('0.03'),
+          itemPrice: getBigNumber('0.03'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('50', 2),
           royaltyFee: getBigNumber('20', 2),
@@ -166,7 +166,7 @@ describe('Test marketplace functions', () => {
         alice
       );
       order.signature = signature;
-      const price = BigNumber.from(order.orderItem.itemAmount).add(order.additionalAmount);
+      const price = BigNumber.from(order.orderItem.itemPrice).add(order.additionalAmount);
       totalPrice = totalPrice.add(price);
       // console.log(order);
     }
@@ -335,6 +335,37 @@ describe('Test marketplace functions', () => {
 
       console.log("Admin wallet balance after sale: ", formatUnits(await adminWallet.getBalance()));
       console.log("Carol wallet balance after sale: ", formatUnits(await carol.getBalance()));
+    })
+
+    it('Pay back the remaining native tokens to buyer', async () => {
+      console.log("Bob wallet balance before sale: ", formatUnits(await bob.getBalance()));
+      const additionalTotalPrice = totalPrice.add(getBigNumber('1'));
+      await expect(
+        gbMarketplace
+        .connect(bob)
+        .callStatic
+        .buyItems(ordersData, {value: additionalTotalPrice})
+      ).to.be.not.reverted;
+
+      const tx = await gbMarketplace
+      .connect(bob)
+      .buyItems(ordersData, {value: additionalTotalPrice});
+      const receipt = await tx.wait();
+
+      const events = receipt.events;
+      expect(events).to.not.undefined;
+
+      for(const event of events) {
+        if (!event.hasOwnProperty("args")) {
+          continue;
+        }
+        // console.log(JSON.stringify(event, null, 2))
+        console.log(JSON.stringify(event.args.ordersResult, null, 2));
+        console.log(JSON.stringify(event.args.ordersStatus, null, 2));
+        console.log(JSON.stringify(event.args.ordersHash, null, 2));
+      }
+
+      console.log("Bob wallet balance after sale: ", formatUnits(await bob.getBalance()));
     })
   })
 });

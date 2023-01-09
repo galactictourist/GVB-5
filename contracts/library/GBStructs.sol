@@ -11,7 +11,7 @@ struct OrderItem {
   uint256 tokenId;
   string tokenURI;
   uint256 quantity;
-  uint256 itemAmount;  // listed price
+  uint256 itemPrice;  // listed price
   address charityAddress;
   uint96 charityShare;
   uint96 royaltyFee;

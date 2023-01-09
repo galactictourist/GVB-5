@@ -110,10 +110,10 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         continue;
       }
       uint256 charityAmount = 0;
-      charityAmount = _calcFeeAmount(orderItem.itemAmount, orderItem.charityShare);
+      charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityShare);
       Address.sendValue(payable(orderItem.charityAddress), charityAmount + additionalAmount);  // send charity amount
 
-      uint256 platformAmount = _calcFeeAmount(orderItem.itemAmount, platformFee);
+      uint256 platformAmount = _calcFeeAmount(orderItem.itemPrice, platformFee);
       Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
 
       address royaltyReceiver;
@@ -133,14 +133,14 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         (royaltyReceiver, royaltyAmount) = IERC2981(orderItem.nftContract)
           .royaltyInfo(
             orderItem.tokenId, 
-            orderItem.itemAmount
+            orderItem.itemPrice
           );
         Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
       }
       unchecked { 
         uint256 totalFeeAmount = charityAmount + royaltyAmount + platformAmount;
-        if (orderItem.itemAmount > totalFeeAmount) {
-          Address.sendValue(payable(orderItem.seller), orderItem.itemAmount - totalFeeAmount); // send rest amount to seller
+        if (orderItem.itemPrice > totalFeeAmount) {
+          Address.sendValue(payable(orderItem.seller), orderItem.itemPrice - totalFeeAmount); // send rest amount to seller
         }
       }
 
@@ -153,10 +153,16 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
         );
       }
       unchecked {
-        totalValue = totalValue - orderItem.itemAmount - additionalAmount;
+        totalValue = totalValue - orderItem.itemPrice - additionalAmount;
       }
       orderProcessed[ordersHash[i]] = true;
     }
+
+    // pay back the remaining native tokens to buyer
+    if (totalValue > 0) {
+      Address.sendValue(payable(_msgSender()), totalValue);
+    }
+
     emit BoughtItem(
       orders,
       ordersResult,
@@ -235,9 +241,9 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       checkStatus = "GBMarketplace: royalty fee must not be greater than 100%";
     } else if (orderItem.charityShare + platformFee + orderItem.royaltyFee > 10000) {
       checkStatus = "GBMarketplace: total fee must be less than 100%";
-    } else if (orderItem.itemAmount == 0) {
+    } else if (orderItem.itemPrice == 0) {
       checkStatus = "GBMarketplace: NFT Price must be greater than 0";
-    } else if (totalValue < orderItem.itemAmount + additionalAmount) {
+    } else if (totalValue < orderItem.itemPrice + additionalAmount) {
       checkStatus = "GBMarketplace: Insufficient funds";
     } else if (orderItem.deadline < block.timestamp) {
       checkStatus = "GBMarketplace: Signature expired";
