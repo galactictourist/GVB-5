@@ -80,7 +80,7 @@ describe('Test marketplace functions', () => {
 
     const currentTimestamp = await helpers.time.latest();
     ordersData = [
-      {
+      { // gbPrimaryCollection nft which is minted already
         orderItem: {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
@@ -99,7 +99,7 @@ describe('Test marketplace functions', () => {
         additionalAmount: 0,
         signature: ''
       },
-      {
+      { // gbPrimaryCollection nft which is minted already
         orderItem: {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
@@ -118,7 +118,7 @@ describe('Test marketplace functions', () => {
         additionalAmount: getBigNumber('0.05'),
         signature: ''
       },
-      {
+      { // gbPrimaryCollection nft which is minted already
         orderItem: {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
@@ -131,6 +131,25 @@ describe('Test marketplace functions', () => {
           charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
+          deadline: currentTimestamp + 10 * 60,
+          salt: generateSalt()
+        },
+        additionalAmount: getBigNumber('0.1'),
+        signature: ''
+      },
+      { // non-minted nft which will be minted by gb721Contract
+        orderItem: {
+          nftContract: gB721Contract.address,
+          itemType: ItemType.ERC721,
+          seller: aliceAddress,
+          isMinted: false,
+          tokenId: 86,
+          tokenURI: tokenURI,
+          quantity: 1,
+          itemAmount: getBigNumber('0.03'),
+          charityAddress: carolAddress,
+          charityShare: getBigNumber('50', 2),
+          royaltyFee: getBigNumber('20', 2),
           deadline: currentTimestamp + 10 * 60,
           salt: generateSalt()
         },
@@ -189,7 +208,7 @@ describe('Test marketplace functions', () => {
       await expect(
         gbPrimaryCollection
         .connect(marketplaceOwner)
-        .mint(10000)
+        .mint(aliceAddress, 10000)
       ).to.be.reverted;
     })
 
@@ -205,7 +224,7 @@ describe('Test marketplace functions', () => {
       await expect(
         gbPrimaryCollection
         .connect(alice)
-        .mint(10000)
+        .mint(aliceAddress, 10000)
       ).to.be.not.reverted;
     })
     
@@ -260,6 +279,7 @@ describe('Test marketplace functions', () => {
       await expect(
         gbMarketplace
         .connect(bob)
+        .callStatic
         .buyItems(ordersData, {value: getBigNumber(0.1)})
       ).to.be.not.reverted;
 
@@ -272,6 +292,9 @@ describe('Test marketplace functions', () => {
       expect(events).to.not.undefined;
 
       for(const event of events) {
+        if (!event.hasOwnProperty("args")) {
+          continue;
+        }
         console.log(JSON.stringify(event.args.ordersResult, null, 2));
         console.log(JSON.stringify(event.args.ordersStatus, null, 2));
         console.log(JSON.stringify(event.args.ordersHash, null, 2));
@@ -284,6 +307,7 @@ describe('Test marketplace functions', () => {
       await expect(
         gbMarketplace
         .connect(bob)
+        .callStatic
         .buyItems(ordersData, {value: totalPrice})
       ).to.be.not.reverted;
 
@@ -296,6 +320,10 @@ describe('Test marketplace functions', () => {
       expect(events).to.not.undefined;
 
       for(const event of events) {
+        if (!event.hasOwnProperty("args")) {
+          continue;
+        }
+        // console.log(JSON.stringify(event, null, 2))
         console.log(JSON.stringify(event.args.ordersResult, null, 2));
         console.log(JSON.stringify(event.args.ordersStatus, null, 2));
         console.log(JSON.stringify(event.args.ordersHash, null, 2));
@@ -303,6 +331,7 @@ describe('Test marketplace functions', () => {
 
       expect(await gbPrimaryCollection.balanceOf(aliceAddress)).to.equal(9998);
       expect(await gbPrimaryCollection.balanceOf(bobAddress)).to.equal(2);
+      expect(await gB721Contract.balanceOf(bobAddress)).to.equal(1);
 
       console.log("Admin wallet balance after sale: ", formatUnits(await adminWallet.getBalance()));
       console.log("Carol wallet balance after sale: ", formatUnits(await carol.getBalance()));

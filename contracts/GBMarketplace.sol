@@ -221,6 +221,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     ) { 
       checkStatus = "GBMarketplace: nftContract address must not be zero address";   
     } else if (
+      orderItem.isMinted && 
       !INftContract(orderItem.nftContract).isApprovedForAll(orderItem.seller, address(this))
     ) {
       checkStatus = "GBMarketplace: NFT was not approved from seller";

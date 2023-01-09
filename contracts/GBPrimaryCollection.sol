@@ -39,13 +39,15 @@ contract GBPrimaryCollection is ERC721A, ERC2981, Ownable {
   }
 
   function mint(
+    address to,
     uint256 quantity
     // uint96 royaltyFee
   ) external onlyOwner {
+    require(to != address(0), "Address must not be zero address");
     // require(royaltyFee <= 10000, "RoyaltyFee must not be greater than 100%");
     uint256 totalSupply = totalSupply();
     require(totalSupply <= 10000, "Cannot mint more than 10000 NFTs");
     // _setDefaultRoyalty(msg.sender, royaltyFee); 
-    _mint(msg.sender, quantity);
+    _mint(to, quantity);
   }
 }
