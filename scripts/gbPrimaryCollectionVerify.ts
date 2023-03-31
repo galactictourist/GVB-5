@@ -13,8 +13,8 @@ async function main() {
     await hre.run("verify:verify", {
         address: contractAddress,
         constructorArguments: [
-            "Givabit Primary Collection",
-            "GPC",
+            "TestNaga",
+            "TNG",
             ownerAddres
         ],
     });

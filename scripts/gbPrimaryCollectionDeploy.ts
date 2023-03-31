@@ -9,8 +9,8 @@ async function main() {
 
     const factory = await ethers.getContractFactory("GBPrimaryCollection");
     const contract = await factory.deploy(
-        "Givabit Primary Collection",
-        "GPC",
+        "TestNaga",
+        "TNG",
         ownerAddres
     );
     await contract.deployed();

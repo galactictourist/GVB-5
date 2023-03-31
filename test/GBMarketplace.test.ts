@@ -25,12 +25,14 @@ describe('Test marketplace functions', () => {
   let alice: SignerWithAddress  // // primary collection nfts owner(seller)
   let bob: SignerWithAddress  // buyer
   let carol: SignerWithAddress  // charity
+  let artist: SignerWithAddress  // artist
   let adminWallet: SignerWithAddress
   let marketplaceOwnerAddress: string
   let adminWalletAddress: string
   let aliceAddress: string  // primary collection nfts owner address(seller address)
   let bobAddress: string  // buyer address
   let carolAddress: string  // charity address
+  let artistAddress: string  // artist address
 
   let tokenURI = "https://bafybeicea5ajmz7gcw25qwkungxrn3ayalwt5igdawviquztks3d7c77y4.ipfs.nftstorage.link/";
 
@@ -43,13 +45,15 @@ describe('Test marketplace functions', () => {
       adminWallet,
       alice,
       bob,
-      carol
+      carol,
+      artist
     ] = await ethers.getSigners()
     marketplaceOwnerAddress = await marketplaceOwner.getAddress()
     adminWalletAddress = await adminWallet.getAddress()
     aliceAddress = await alice.getAddress()
     bobAddress = await bob.getAddress()
     carolAddress = await carol.getAddress()
+    artistAddress = await artist.getAddress()
     console.log('===================Deploying Contract=====================')
 
     const contractFactory1 = await ethers.getContractFactory("GBMarketplace")
@@ -85,11 +89,12 @@ describe('Test marketplace functions', () => {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
           seller: aliceAddress,
+          artist: artistAddress,
           isMinted: true,
           tokenId: 0,
           tokenURI: tokenURI,
           quantity: 1,
-          itemPrice: getBigNumber('0.01'),
+          itemPrice: getBigNumber('1'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('15', 2),
           royaltyFee: 0,
@@ -104,11 +109,12 @@ describe('Test marketplace functions', () => {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
           seller: aliceAddress,
+          artist: artistAddress,
           isMinted: true,
           tokenId: 9998,
           tokenURI: tokenURI,
           quantity: 1,
-          itemPrice: getBigNumber('0.02'),
+          itemPrice: getBigNumber('2'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
@@ -123,11 +129,12 @@ describe('Test marketplace functions', () => {
           nftContract: gbPrimaryCollection.address,
           itemType: ItemType.ERC721,
           seller: aliceAddress,
+          artist: artistAddress,
           isMinted: true,
           tokenId: 9999,
           tokenURI: tokenURI,
           quantity: 1,
-          itemPrice: getBigNumber('0.02'),
+          itemPrice: getBigNumber('3'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('20', 2),
           royaltyFee: 0,
@@ -142,11 +149,12 @@ describe('Test marketplace functions', () => {
           nftContract: gB721Contract.address,
           itemType: ItemType.ERC721,
           seller: aliceAddress,
+          artist: artistAddress,
           isMinted: false,
           tokenId: 86,
           tokenURI: tokenURI,
           quantity: 1,
-          itemPrice: getBigNumber('0.03'),
+          itemPrice: getBigNumber('4'),
           charityAddress: carolAddress,
           charityShare: getBigNumber('50', 2),
           royaltyFee: getBigNumber('20', 2),
@@ -303,6 +311,7 @@ describe('Test marketplace functions', () => {
 
     it('PASS!', async () => {
       console.log("Admin wallet balance before sale: ", formatUnits(await adminWallet.getBalance()));
+      console.log("Artist wallet balance before sale: ", formatUnits(await artist.getBalance()));
       console.log("Carol wallet balance before sale: ", formatUnits(await carol.getBalance()));
       await expect(
         gbMarketplace
@@ -334,6 +343,7 @@ describe('Test marketplace functions', () => {
       expect(await gB721Contract.balanceOf(bobAddress)).to.equal(1);
 
       console.log("Admin wallet balance after sale: ", formatUnits(await adminWallet.getBalance()));
+      console.log("Artist wallet balance after sale: ", formatUnits(await artist.getBalance()));
       console.log("Carol wallet balance after sale: ", formatUnits(await carol.getBalance()));
     })
 

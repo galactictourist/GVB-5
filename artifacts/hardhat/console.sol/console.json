@@ -1,0 +1,10 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "console",
+  "sourceName": "hardhat/console.sol",
+  "abi": [],
+  "bytecode": "0x60808060405234601757603a9081601d823930815050f35b600080fdfe600080fdfea2646970667358221220da5f27b4c5300b7cb3d93e86b70ce73645e62052c659d57373bcd0cd60bc45b964736f6c63430008110033",
+  "deployedBytecode": "0x600080fdfea2646970667358221220da5f27b4c5300b7cb3d93e86b70ce73645e62052c659d57373bcd0cd60bc45b964736f6c63430008110033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

@@ -7,6 +7,7 @@ struct OrderItem {
   address nftContract;
   uint256 itemType;
   address seller;
+  address artist;
   bool isMinted;
   uint256 tokenId;
   string tokenURI;

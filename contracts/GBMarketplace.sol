@@ -22,7 +22,6 @@ import "./library/Domain.sol";
 contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   event BoughtItem(
-    Order[] orders,
     bool[] ordersResult,
     string[] ordersStatus,
     bytes32[] ordersHash
@@ -37,7 +36,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   event SetNftContractAddress(address nftContract, bool status);
   event SetAdminWallet(address account);
-  event SetPlatformFee(uint96 platformFee);
+  event SetPlatformFee(uint96 platformFee, uint8 platformFeeType);
   event OrderCancelled(bool[] cancelResults, string[] cancelStatus, bytes32[] ordersHash);
 
   bytes4 private constant InterfaceId_ERC721 = 0x80ac58cd;
@@ -48,7 +47,8 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   mapping(bytes32 => bool) public orderProcessed;  // orderHash => isProcessed
 
   address private adminWallet;
-  uint96 public platformFee = 250;   // 2.5% platform fee
+  uint96 public platformFeeFromSeller = 5000; // platform fee from seller is 50% as default
+  uint96 public platformFeeFromCharity = 100; // platform fee from charity is 1% as default
 
   constructor(
     address owner,
@@ -85,11 +85,16 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     emit SetAdminWallet(adminWallet_);
   }
 
-  function setPlatformFee(uint96 platformFee_) external onlyRole(DEFAULT_ADMIN_ROLE)
+  function setPlatformFee(uint96 platformFee_, uint8 platformFeeType) external onlyRole(DEFAULT_ADMIN_ROLE)
   {
-    require (platformFee_ > 0, "platformFee must be greater than zero");
-    platformFee = platformFee_;
-    emit SetPlatformFee(platformFee_);
+    require (platformFee_ < 10000, "platformFee must be less than 100%");
+
+    if (platformFeeType == 0) {
+      platformFeeFromSeller = platformFee_;
+    } else {
+      platformFeeFromCharity = platformFee_;
+    }
+    emit SetPlatformFee(platformFee_, platformFeeType);
   }
 
   function buyItems(
@@ -109,13 +114,14 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       if (!ordersResult[i]) {
         continue;
       }
-      uint256 charityAmount = 0;
-      charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityShare);
-      Address.sendValue(payable(orderItem.charityAddress), charityAmount + additionalAmount);  // send charity amount
-
-      uint256 platformAmount = _calcFeeAmount(orderItem.itemPrice, platformFee);
-      Address.sendValue(payable(adminWallet), platformAmount);  // send platformFee to adminWallet
-
+      uint256 platformAmount = 0;
+      uint256 charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityShare);
+      uint256 totalCharityAmount = charityAmount + additionalAmount;
+      if (platformFeeFromCharity > 0) {
+        platformAmount = _calcFeeAmount(totalCharityAmount, platformFeeFromCharity);
+      }
+      Address.sendValue(payable(orderItem.charityAddress), totalCharityAmount - platformAmount);  // send charity amount
+      
       address royaltyReceiver;
       uint256 royaltyAmount;
       if (gbNftContracts[orderItem.nftContract]) {
@@ -137,12 +143,17 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
           );
         Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
       }
-      unchecked { 
-        uint256 totalFeeAmount = charityAmount + royaltyAmount + platformAmount;
-        if (orderItem.itemPrice > totalFeeAmount) {
-          Address.sendValue(payable(orderItem.seller), orderItem.itemPrice - totalFeeAmount); // send rest amount to seller
-        }
+      if (orderItem.itemPrice > charityAmount + royaltyAmount) {
+        uint256 sellerAmount = orderItem.itemPrice - charityAmount - royaltyAmount;
+        uint256 additionalPlatformAmount = _calcFeeAmount(
+          sellerAmount, 
+          platformFeeFromSeller
+        );
+        platformAmount += additionalPlatformAmount;
+        Address.sendValue(payable(orderItem.artist), sellerAmount - additionalPlatformAmount); // send rest amount to artist address
       }
+
+      Address.sendValue(payable(adminWallet), platformAmount); // send platform amount to admin address
 
       // transfer NFT from seller to buyer
       if (IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721)) {
@@ -164,7 +175,6 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     }
 
     emit BoughtItem(
-      orders,
       ordersResult,
       ordersStatus,
       ordersHash
@@ -245,7 +255,7 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
       checkStatus = "GBMarketplace: charity percentage must be between 10% and 100%";
     } else if (orderItem.royaltyFee > 10000) {
       checkStatus = "GBMarketplace: royalty fee must not be greater than 100%";
-    } else if (orderItem.charityShare + platformFee + orderItem.royaltyFee > 10000) {
+    } else if (orderItem.charityShare + orderItem.royaltyFee > 10000) {
       checkStatus = "GBMarketplace: total fee must be less than 100%";
     } else if (orderItem.itemPrice == 0) {
       checkStatus = "GBMarketplace: NFT Price must be greater than 0";
