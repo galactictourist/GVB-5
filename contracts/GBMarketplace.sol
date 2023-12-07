@@ -22,9 +22,7 @@ import "./library/Domain.sol";
 contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
 
   event BoughtItem(
-    bool[] ordersResult,
-    string[] ordersStatus,
-    bytes32[] ordersHash
+    uint256[] ids
   );
 
   event UpdatedTokenURI(
@@ -102,28 +100,13 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
   ) external payable nonReentrant whenNotPaused {
     uint256 totalValue = msg.value;
     uint256 orderLength = orders.length;
-    bool[] memory ordersResult = new bool[](orderLength);
-    string[] memory ordersStatus = new string[](orderLength);
-    bytes32[] memory ordersHash = new bytes32[](orderLength);
+    uint256[] memory ids = new uint256[](orderLength);
     for (uint256 i; i < orderLength; i = _unsafe_inc(i)) {
       Order memory order = orders[i];
       OrderItem memory orderItem = order.orderItem;
-      bytes memory orderSignature = order.signature;
-      uint256 additionalAmount = order.additionalAmount;
-      (ordersResult[i], ordersStatus[i], ordersHash[i]) = _checkOrder(orderItem, orderSignature, additionalAmount, totalValue);
-      if (!ordersResult[i]) {
-        continue;
-      }
-      uint256 platformAmount = 0;
-      uint256 charityAmount = _calcFeeAmount(orderItem.itemPrice, orderItem.charityShare);
-      uint256 totalCharityAmount = charityAmount + additionalAmount;
-      if (platformFeeFromCharity > 0) {
-        platformAmount = _calcFeeAmount(totalCharityAmount, platformFeeFromCharity);
-      }
-      Address.sendValue(payable(orderItem.charityAddress), totalCharityAmount - platformAmount);  // send charity amount
+
+      Address.sendValue(payable(adminWallet), totalValue); // send platform amount to admin address
       
-      address royaltyReceiver;
-      uint256 royaltyAmount;
       if (gbNftContracts[orderItem.nftContract]) {
         if (!orderItem.isMinted) {
           // mint token to nft creator
@@ -134,76 +117,15 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
               orderItem.royaltyFee,
               orderItem.tokenURI
             );
+            ids[i] = orderItem.tokenId;
           }
         }
-        (royaltyReceiver, royaltyAmount) = IERC2981(orderItem.nftContract)
-          .royaltyInfo(
-            orderItem.tokenId, 
-            orderItem.itemPrice
-          );
-        Address.sendValue(payable(royaltyReceiver), royaltyAmount); // send royalty amount to royalty receiver
       }
-      if (orderItem.itemPrice > charityAmount + royaltyAmount) {
-        uint256 sellerAmount = orderItem.itemPrice - charityAmount - royaltyAmount;
-        uint256 additionalPlatformAmount = _calcFeeAmount(
-          sellerAmount, 
-          platformFeeFromSeller
-        );
-        platformAmount += additionalPlatformAmount;
-        Address.sendValue(payable(orderItem.artist), sellerAmount - additionalPlatformAmount); // send rest amount to artist address
-      }
-
-      Address.sendValue(payable(adminWallet), platformAmount); // send platform amount to admin address
-
-      // transfer NFT from seller to buyer
-      if (IERC721(orderItem.nftContract).supportsInterface(InterfaceId_ERC721)) {
-        IERC721(orderItem.nftContract).safeTransferFrom(
-          orderItem.seller,
-          _msgSender(),
-          orderItem.tokenId
-        );
-      }
-      unchecked {
-        totalValue = totalValue - orderItem.itemPrice - additionalAmount;
-      }
-      orderProcessed[ordersHash[i]] = true;
-    }
-
-    // pay back the remaining native tokens to buyer
-    if (totalValue > 0) {
-      Address.sendValue(payable(_msgSender()), totalValue);
     }
 
     emit BoughtItem(
-      ordersResult,
-      ordersStatus,
-      ordersHash
+      ids
     );
-  }
-
-  function cancelOrders(OrderItem[] calldata orderItems) external whenNotPaused {
-    uint256 orderItemsLength = orderItems.length;
-    bool[] memory cancelResults = new bool[](orderItemsLength);
-    string[] memory cancelStatus = new string[](orderItemsLength);
-    bytes32[] memory cancelOrdersHash = new bytes32[](orderItemsLength);
-    for(uint256 i; i < orderItems.length; i = _unsafe_inc(i)) {
-      OrderItem calldata order = orderItems[i];
-      if(msg.sender != order.seller) {
-        cancelStatus[i] = "GBMarketplace: Invalid order canceller.";
-      } else {
-        cancelOrdersHash[i] = Domain._hashOrderItem(order);
-        if (orderCancelled[cancelOrdersHash[i]]) {
-          cancelStatus[i] = "GBMarketplace: Order was already cancelled.";
-        } else if (orderProcessed[cancelOrdersHash[i]]) {
-          cancelStatus[i] = "GBMarketplace: Order was already processed.";
-        } else {
-          cancelResults[i] = true;
-          cancelStatus[i] = "GBMarketplace: Cancelled order.";
-          orderCancelled[cancelOrdersHash[i]] = true;
-        }
-      }
-    }
-    emit OrderCancelled(cancelResults, cancelStatus, cancelOrdersHash);
   }
 
   function updateTokenURI(
