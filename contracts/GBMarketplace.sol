@@ -151,6 +151,31 @@ contract GBMarketplace is AccessControl, EIP712, ReentrancyGuard, Pausable {
     );
   }
 
+  function cancelOrders(OrderItem[] calldata orderItems) external whenNotPaused {
+    uint256 orderItemsLength = orderItems.length;
+    bool[] memory cancelResults = new bool[](orderItemsLength);
+    string[] memory cancelStatus = new string[](orderItemsLength);
+    bytes32[] memory cancelOrdersHash = new bytes32[](orderItemsLength);
+    for(uint256 i; i < orderItems.length; i = _unsafe_inc(i)) {
+      OrderItem calldata order = orderItems[i];
+      if(msg.sender != order.seller) {
+        cancelStatus[i] = "GBMarketplace: Invalid order canceller.";
+      } else {
+        cancelOrdersHash[i] = Domain._hashOrderItem(order);
+        if (orderCancelled[cancelOrdersHash[i]]) {
+          cancelStatus[i] = "GBMarketplace: Order was already cancelled.";
+        } else if (orderProcessed[cancelOrdersHash[i]]) {
+          cancelStatus[i] = "GBMarketplace: Order was already processed.";
+        } else {
+          cancelResults[i] = true;
+          cancelStatus[i] = "GBMarketplace: Cancelled order.";
+          orderCancelled[cancelOrdersHash[i]] = true;
+        }
+      }
+    }
+    emit OrderCancelled(cancelResults, cancelStatus, cancelOrdersHash);
+  }
+
   function _checkOrder(
     OrderItem memory orderItem, 
     bytes memory orderSignature,
